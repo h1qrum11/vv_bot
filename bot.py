@@ -3,20 +3,15 @@ import logging
 import sqlite3
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.client.session.aiohttp import AiohttpSession  # Модуль сессий
 
-# Токен бота
-API_TOKEN = '8653046435:AAGhLqpA4CREIjNVDyWaPOPYFM5-DU8j0eQ'
+# НОВЫЙ ТОКЕН БОТА (PointMaster)
+API_TOKEN = '8857353486:AAFRlohCGwa8CEZ1tMF7nRkXKR2ZvSMeo74'
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Указываем рабочий публичный прокси (если этот перестанет работать, можно заменить на другой IP:PORT)
-PROXY_URL = "http://185.162.231.134:80" 
-
-# Инициализация бота с использованием рабочего внешнего прокси
-session = AiohttpSession(proxy=PROXY_URL)
-bot = Bot(token=API_TOKEN, session=session)
+# Инициализация бота
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
 # Инициализация базы данных SQLite
@@ -97,6 +92,18 @@ KEYWORDS = {
     "treasonsuspicion": (-3, "Тяжёлые последствия для будущего")
 }
 
+# Обработчик команды /start
+@dp.message(Command("start"))
+async def start_command(message: types.Message):
+    welcome_text = (
+        "Рады приветствовать вас в проекте «PointMaster». Бот создан для помощи ролевым по Османской империи и подобным. \n\n"
+        "Суть нашего бота? Вы не можете выбрать, кто сядет на престол, и тогда на помощь приходит наш бот. "
+        "Шехзаде за свои действия получают баллы, используя команды, благодаря которым вы получаете готовый рейтинг!\n\n"
+        "Бот придуман нашей командой, любое копирование запрещено!\n\n"
+        "Связь: по всем вопросам и неполадкам, связанными с ботом писать создателю @h1qrum1"
+    )
+    await message.reply(welcome_text)
+
 # Команда для просмотра счета и топа
 @dp.message(Command(commands=['points', 'top']))
 async def show_scores(message: types.Message):
@@ -107,14 +114,27 @@ async def show_scores(message: types.Message):
         await message.reply(f"Счет: {score}")
         
     elif message.text.startswith('/top'):
-        cursor.execute("SELECT name, points FROM users ORDER BY points DESC")
-        rows = cursor.fetchall()
+        if message.chat.type not in ["group", "supergroup"]:
+            await message.reply("Топ доступен только в группах")
+            return
+
+        cursor.execute("SELECT id, name, points FROM users ORDER BY points DESC")
+        all_rows = cursor.fetchall()
         
-        if not rows:
+        filtered_rows = []
+        for user_id, name, pts in all_rows:
+            try:
+                member = await message.chat.get_member(user_id)
+                if member.status in ["creator", "administrator", "member"]:
+                    filtered_rows.append((name, pts))
+            except Exception:
+                continue
+        
+        if not filtered_rows:
             await message.reply("Топ пуст")
             return
             
-        top_list = "\n".join([f"{i}. {name}: {pts}" for i, (name, pts) in enumerate(rows, 1)])
+        top_list = "\n".join([f"{i}. {name}: {pts}" for i, (name, pts) in enumerate(filtered_rows, 1)])
         await message.reply(f"Топ:\n{top_list}")
 
 # Проверка ключевых слов и начисление/вычитание баллов
@@ -127,11 +147,11 @@ async def check_keywords(message: types.Message):
     points_to_add = 0
     reason = ""
 
-    # Ищем ключевое слово и извлекаем данные
+    # Ищем ключевое слово и извлекаем данные по индексам
     for keyword, data in KEYWORDS.items():
         if keyword in text:
-            points_to_add = data[0]
-            reason = data[1]
+            points_to_add = data[0]  # Индекс 0 — это число баллов
+            reason = data[1]         # Индекс 1 — это текстовое описание
             break
 
     # Начисляем или списываем баллы
